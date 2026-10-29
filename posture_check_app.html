@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>坐姿與站姿即時評分小系統</title>
+  <title>坐姿與站姿（側面）即時評分小系統</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
@@ -32,7 +32,7 @@
           <i data-lucide="user-check" class="w-6 h-6"></i>
         </div>
         <div>
-          <h1 class="text-xl font-bold tracking-wide text-white">坐姿與站姿檢測小系統</h1>
+          <h1 class="text-xl font-bold tracking-wide text-white">坐姿與站姿（側面）檢測小系統</h1>
           <p class="text-xs text-slate-400">依據課本正確「坐、立」姿勢要點即時評分</p>
           <p class="text-[11px] text-amber-300/90 font-medium mt-0.5">※ 以下小系統數據只供娛樂及參考，請各位同學注意正確坐姿與站姿，保護自己的身體</p>
         </div>
@@ -139,11 +139,11 @@
             <div class="flex items-center space-x-2">
               <button id="btnSitModal" onclick="openRefModal('sitting')" class="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition flex items-center space-x-1 shadow">
                 <i data-lucide="image" class="w-3.5 h-3.5"></i>
-                <span>正確坐姿示範圖</span>
+                <span>正確坐姿（側面）示範圖</span>
               </button>
               <button id="btnStandModal" onclick="openRefModal('standing')" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition flex items-center space-x-1 shadow hidden">
                 <i data-lucide="image" class="w-3.5 h-3.5"></i>
-                <span>正確站姿示範圖</span>
+                <span>正確站姿（側面）示範圖</span>
               </button>
               <span id="modeBadge" class="text-xs font-semibold px-2.5 py-1 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
                 坐姿模式
@@ -294,7 +294,7 @@
   <!-- Footer -->
   <footer class="bg-slate-900 border-t border-slate-800 py-4 px-4 text-center mt-auto">
     <p class="text-xs md:text-sm text-slate-400 font-medium">
-      — Ms. Hea Limited ｜ 站姿坐姿檢測小系統 ｜ 網頁由 Google Gemini 製作 —
+      — Ms. Hea Limited ｜ 站姿坐姿（側面）檢測小系統 ｜ 網頁由 Google Gemini 製作 —
     </p>
   </footer>
 
@@ -966,13 +966,13 @@
       const imgEl = document.getElementById('refModalImg');
 
       if (type === 'sitting') {
-        titleEl.innerHTML = `<i data-lucide="book-open" class="w-5 h-5 mr-2 text-blue-400"></i> 正確坐姿示範圖`;
+        titleEl.innerHTML = `<i data-lucide="book-open" class="w-5 h-5 mr-2 text-blue-400"></i> 正確坐姿（側面）示範圖`;
         imgEl.src = '正確坐姿.jpg';
         imgEl.onerror = () => {
           imgEl.src = 'https://placehold.co/800x450/1e293b/38bdf8?text=%E6%AD%A3%E7%A2%RA%E5%9D%90%E5%A7%BF.jpg+%EF%BC%88%E8%AB%8B%E5%B0%87%E5%9C%96%E7%89%87%E6%94%BE%E5%85%A5%E5%B0%8D%E6%87%89%E8%B7%AF%E5%BE%84%EF%BC%89';
         };
       } else {
-        titleEl.innerHTML = `<i data-lucide="book-open" class="w-5 h-5 mr-2 text-emerald-400"></i> 正確站姿示範圖`;
+        titleEl.innerHTML = `<i data-lucide="book-open" class="w-5 h-5 mr-2 text-emerald-400"></i> 正確站（側面）姿示範圖`;
         imgEl.src = '正確站姿.jpg';
         imgEl.onerror = () => {
           imgEl.src = 'https://placehold.co/800x450/1e293b/34d399?text=%E6%AD%A3%E7%A2%RA%E7%AB%99%E5%A7%BF.jpg+%EF%BC%88%E8%AB%8B%E5%B0%87%E5%9C%96%E7%89%87%E6%94%BE%E5%85%A5%E5%B0%8D%E6%87%89%E8%B7%AF%E5%BE%84%EF%BC%89';
