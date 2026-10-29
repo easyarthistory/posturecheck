@@ -34,6 +34,7 @@
         <div>
           <h1 class="text-xl font-bold tracking-wide text-white">同學坐姿與站姿檢測系統</h1>
           <p class="text-xs text-slate-400">依據課本正確「坐、立」姿勢要點即時評分</p>
+          <p class="text-[11px] text-amber-300/90 font-medium mt-0.5">※ 以下小系統數據只供參考，請各位同學注意正確坐姿與站姿，保護自己</p>
         </div>
       </div>
 
@@ -73,6 +74,18 @@
         <div class="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700/50 flex items-center space-x-2">
           <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></span>
           <span id="statusText" class="text-xs font-semibold text-slate-200">尋找人體中...</span>
+        </div>
+
+        <!-- Camera Zoom Controls Overlay -->
+        <div class="absolute bottom-4 left-4 z-10 bg-slate-900/85 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-700/80 flex items-center space-x-2 text-slate-200 shadow-lg">
+          <button onclick="changeZoom(-0.2)" class="p-1 hover:bg-slate-700 rounded transition text-slate-300 hover:text-white" title="縮細">
+            <i data-lucide="zoom-out" class="w-4 h-4"></i>
+          </button>
+          <input id="zoomRange" type="range" min="1" max="3" step="0.1" value="1" oninput="onZoomSliderChange(this.value)" class="w-20 md:w-28 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+          <button onclick="changeZoom(0.2)" class="p-1 hover:bg-slate-700 rounded transition text-slate-300 hover:text-white" title="放大">
+            <i data-lucide="zoom-in" class="w-4 h-4"></i>
+          </button>
+          <span id="zoomValueText" class="text-xs font-mono font-bold text-blue-400 min-w-[2.5rem] text-right">1.0x</span>
         </div>
 
         <!-- Reference Guidelines Card overlay -->
@@ -214,6 +227,19 @@
         </div>
       </div>
 
+      <!-- Snapshot Image Preview with Skeleton (Temporary memory, no server saving) -->
+      <div class="mb-5 bg-slate-900 p-2 rounded-xl border border-slate-700/80">
+        <div class="text-xs text-slate-400 mb-1.5 px-1 flex items-center justify-between">
+          <span class="font-semibold text-slate-300 flex items-center">
+            <i data-lucide="image" class="w-3.5 h-3.5 mr-1 text-blue-400"></i> 擷取姿勢骨架快照
+          </span>
+          <span class="text-[10px] text-slate-500">※ 純當下顯示，不存底 / 不上傳</span>
+        </div>
+        <div class="rounded-lg overflow-hidden border border-slate-800 bg-black flex items-center justify-center max-h-[220px]">
+          <img id="reportSnapshotImg" src="" alt="姿勢骨架擷取畫面" class="max-h-[220px] w-auto object-contain">
+        </div>
+      </div>
+
       <!-- Detailed Feedback List -->
       <div class="space-y-3 mb-6" id="reportDetails">
         <!-- Will be populated dynamically -->
@@ -232,7 +258,7 @@
   <!-- Footer -->
   <footer class="bg-slate-900 border-t border-slate-800 py-4 px-4 text-center mt-auto">
     <p class="text-xs md:text-sm text-slate-400 font-medium">
-      — Ms. Hea Limited ｜ 站姿坐姿檢測小系統 ｜ 網頁由 Google Gemini 製作 —
+     — Ms. Hea Limited ｜ 站姿坐姿檢測系統 ｜ 網頁由 Google Gemini 製作 —
     </p>
   </footer>
 
@@ -244,6 +270,7 @@
     let currentStream = null;
     let poseInstance = null;
     let animFrameId = null;
+    let currentZoom = 1.0; // Dynamic Zoom factor (1.0x to 3.0x)
 
     // Elements
     const videoElement = document.getElementById('videoElement');
@@ -254,6 +281,8 @@
     const statusText = document.getElementById('statusText');
     const liveScoreEl = document.getElementById('liveScore');
     const cameraSelect = document.getElementById('cameraSelect');
+    const zoomRange = document.getElementById('zoomRange');
+    const zoomValueText = document.getElementById('zoomValueText');
 
     // Current Analysis Data
     let latestAnalysis = {
@@ -390,6 +419,9 @@
         loadingOverlay.classList.add('hidden');
         await populateCameraDevices();
 
+        // Apply dynamic camera hardware zoom if supported by device
+        applyHardwareZoom(currentZoom);
+
         // Start processing frames
         processVideoFrame();
       } catch (err) {
@@ -404,6 +436,7 @@
 
           loadingOverlay.classList.add('hidden');
           await populateCameraDevices();
+          applyHardwareZoom(currentZoom);
           processVideoFrame();
         } catch (fallbackErr) {
           console.error("相機啟動錯誤：", fallbackErr);
@@ -413,6 +446,40 @@
           if (retryBtn) retryBtn.classList.remove('hidden');
         }
       }
+    }
+
+    // Zoom Handling (Hardware + Canvas Fallback)
+    async function applyHardwareZoom(zoomLevel) {
+      if (!currentStream) return;
+      const track = currentStream.getVideoTracks()[0];
+      if (!track) return;
+
+      try {
+        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+        if (capabilities.zoom) {
+          const minZoom = capabilities.zoom.min || 1;
+          const maxZoom = capabilities.zoom.max || 3;
+          const targetZoom = Math.min(Math.max(zoomLevel, minZoom), maxZoom);
+          await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+        }
+      } catch (err) {
+        console.log("硬體 Zoom 不被裝置支援，使用數位 Canvas 裁切縮放：", err);
+      }
+    }
+
+    function onZoomSliderChange(val) {
+      currentZoom = parseFloat(val);
+      zoomValueText.innerText = currentZoom.toFixed(1) + 'x';
+      applyHardwareZoom(currentZoom);
+    }
+
+    function changeZoom(delta) {
+      let newZoom = Math.min(Math.max(currentZoom + delta, 1.0), 3.0);
+      newZoom = Math.round(newZoom * 10) / 10;
+      currentZoom = newZoom;
+      zoomRange.value = newZoom;
+      zoomValueText.innerText = newZoom.toFixed(1) + 'x';
+      applyHardwareZoom(currentZoom);
     }
 
     function stopCamera() {
@@ -473,8 +540,15 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      // Draw original video frame
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      // Render Video Frame with Zoom Transformation
+      const vWidth = canvasElement.width;
+      const vHeight = canvasElement.height;
+      const sw = vWidth / currentZoom;
+      const sh = vHeight / currentZoom;
+      const sx = (vWidth - sw) / 2;
+      const sy = (vHeight - sh) / 2;
+
+      canvasCtx.drawImage(results.image, sx, sy, sw, sh, 0, 0, vWidth, vHeight);
 
       if (results.poseLandmarks) {
         statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
@@ -491,7 +565,7 @@
       canvasCtx.restore();
     }
 
-    // Drawing Skeleton
+    // Drawing Skeleton with Zoom Compensation
     function drawPoseSkeleton(landmarks) {
       const connections = [
         [11, 12], [11, 23], [12, 24], [23, 24], // Torso
@@ -500,6 +574,14 @@
         [0, 11], [0, 12]                        // Head
       ];
 
+      // Coordinate converter considering zoom transform
+      const mapPt = (p) => {
+        return {
+          x: (p.x - 0.5) * currentZoom * canvasElement.width + canvasElement.width / 2,
+          y: (p.y - 0.5) * currentZoom * canvasElement.height + canvasElement.height / 2
+        };
+      };
+
       canvasCtx.lineWidth = 4;
       canvasCtx.strokeStyle = '#3b82f6';
 
@@ -507,9 +589,11 @@
         const p1 = landmarks[i];
         const p2 = landmarks[j];
         if (p1 && p2 && p1.visibility > 0.4 && p2.visibility > 0.4) {
+          const pt1 = mapPt(p1);
+          const pt2 = mapPt(p2);
           canvasCtx.beginPath();
-          canvasCtx.moveTo(p1.x * canvasElement.width, p1.y * canvasElement.height);
-          canvasCtx.lineTo(p2.x * canvasElement.width, p2.y * canvasElement.height);
+          canvasCtx.moveTo(pt1.x, pt1.y);
+          canvasCtx.lineTo(pt2.x, pt2.y);
           canvasCtx.stroke();
         }
       });
@@ -518,8 +602,9 @@
       [0, 11, 12, 23, 24, 25, 26, 27, 28].forEach(idx => {
         const p = landmarks[idx];
         if (p && p.visibility > 0.4) {
+          const pt = mapPt(p);
           canvasCtx.beginPath();
-          canvasCtx.arc(p.x * canvasElement.width, p.y * canvasElement.height, 6, 0, 2 * Math.PI);
+          canvasCtx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
           canvasCtx.fillStyle = '#10b981';
           canvasCtx.fill();
           canvasCtx.lineWidth = 2;
@@ -549,12 +634,14 @@
       let headAdvice = "頭部保持正中抬起，視線向前。";
       
       // Nose angle vs shoulder center (Forward head or downward tilt)
+      // Optimized threshold to prevent false "head low" detections
       const headOffset = Math.abs(nose.x - shoulderCenterX);
-      const lowHeadDiff = nose.y - shoulderCenterY; // Nose too low relative to shoulder
+      const lowHeadDiff = nose.y - shoulderCenterY; // Nose too low relative to shoulder (negative means nose is above shoulders)
 
-      if (headOffset > 0.08 || lowHeadDiff > -0.15) {
+      // Relaxed offset threshold from 0.08 to 0.15 and lowHeadDiff threshold to allow natural camera angles
+      if (headOffset > 0.15 || lowHeadDiff > -0.05) {
         headPass = false;
-        headAdvice = "注意「頭抬起」！請勿過度低頭看書或前傾。";
+        headAdvice = "注意「頭抬起」！請勿過度低頭看書或頭部嚴重前傾。";
         issues.push("未做到「頭抬起」（有低頭或頭前傾現象）");
       }
 
@@ -668,10 +755,16 @@
       const reportBadge = document.getElementById('reportBadge');
       const reportTime = document.getElementById('reportTime');
       const reportDetails = document.getElementById('reportDetails');
+      const reportSnapshotImg = document.getElementById('reportSnapshotImg');
 
       reportBadge.innerText = currentMode === 'sitting' ? '課本對照：坐姿評分' : '課本對照：站姿評分';
       reportTime.innerText = `檢測時間：${new Date().toLocaleTimeString()}`;
       reportScore.innerText = latestAnalysis.score;
+
+      // Capture current canvas image with skeleton rendered (In-memory, non-persistent)
+      if (canvasElement) {
+        reportSnapshotImg.src = canvasElement.toDataURL('image/png');
+      }
 
       let html = '';
 
