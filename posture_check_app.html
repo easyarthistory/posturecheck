@@ -16,9 +16,9 @@
     body {
       font-family: 'Noto Sans TC', sans-serif;
     }
-    /* Mirror camera view for intuitive user experience */
+    /* Normal orientation for non-selfie/rear camera view */
     .mirror {
-      transform: scaleX(-1);
+      transform: scaleX(1);
     }
   </style>
 </head>
@@ -57,9 +57,12 @@
       <div class="relative bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 shadow-xl aspect-video flex items-center justify-center">
         <!-- Loading overlay -->
         <div id="loading" class="absolute inset-0 z-20 bg-slate-900/90 flex flex-col items-center justify-center p-4">
-          <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p class="text-lg font-medium text-slate-200" id="loadingText">正在初始化 AI 模型與鏡頭...</p>
-          <p class="text-xs text-slate-400 mt-1">請允許瀏覽器存取攝影機權限</p>
+          <div id="loadingSpinner" class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+          <p class="text-lg font-medium text-slate-200 text-center" id="loadingText">正在初始化 AI 模型與鏡頭...</p>
+          <p class="text-xs text-slate-400 mt-1 text-center" id="loadingSubtext">請允許瀏覽器存取攝影機權限</p>
+          <button id="retryCamBtn" onclick="retryCamera()" class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition hidden">
+            重新嘗試啟動相機
+          </button>
         </div>
 
         <!-- Video and Canvas -->
@@ -94,11 +97,13 @@
         <div class="flex items-center space-x-2">
           <button id="toggleCamBtn" onclick="toggleCamera()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition flex items-center space-x-2">
             <i data-lucide="video" class="w-4 h-4"></i>
-            <span id="camBtnText">開/關鏡頭</span>
+            <span id="camBtnText">關閉鏡頭</span>
           </button>
-          <button onclick="switchCameraFacing()" class="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition" title="切換鏡頭">
-            <i data-lucide="switch-camera" class="w-4 h-4"></i>
-          </button>
+          
+          <!-- Camera Source Selector -->
+          <select id="cameraSelect" onchange="switchSelectedCamera()" class="bg-slate-700 text-slate-200 text-xs rounded-lg p-2 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[160px]">
+            <option value="">自動選取相機</option>
+          </select>
         </div>
 
         <button onclick="captureAssessment()" class="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg hover:shadow-emerald-900/40 transition flex items-center space-x-2">
@@ -151,11 +156,11 @@
             <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50">
               <div class="flex justify-between text-sm mb-1">
                 <span class="text-slate-300 font-medium flex items-center">
-                  <i data-lucide="check-circle-2" id="backIcon" class="w-4 h-4 mr-1.5 text-emerald-400"></i> 腰背挺直 / 背部靠椅背
+                  <i data-lucide="check-circle-2" id="backIcon" class="w-4 h-4 mr-1.5 text-emerald-400"></i> 腰背挺直 <span id="backChairLabel">/ 背部靠椅背</span>
                 </span>
                 <span id="backMetric" class="font-semibold text-emerald-400">符合</span>
               </div>
-              <p id="backAdvice" class="text-xs text-slate-400">脊椎打直，維持健康自然彎曲。</p>
+              <p id="backAdvice" class="text-xs text-slate-400">脊椎打直，維繫健康自然彎曲。</p>
             </div>
 
             <!-- Metric 4: Feet Grounded (for sitting) -->
@@ -174,9 +179,9 @@
         <!-- Quick Guidance -->
         <div class="mt-4 bg-blue-950/40 border border-blue-800/50 p-3.5 rounded-xl text-xs text-blue-200">
           <div class="font-bold flex items-center text-blue-300 mb-1">
-            <i data-lucide="info" class="w-4 h-4 mr-1"></i> 檢測提示
+            <i data-lucide="info" class="w-4 h-4 mr-1"></i> 計分說明
           </div>
-          請將鏡頭對準同學側面或正面，確保頭部、肩膀與腰背皆入鏡，以獲得最精準評分。
+          <span id="scoringRuleHint">坐姿檢測共4項，每符合一項計 25 分。</span>
         </div>
       </div>
 
@@ -228,9 +233,10 @@
     // App State
     let currentMode = 'sitting'; // 'sitting' or 'standing'
     let isCameraActive = true;
-    let cameraFacing = 'user'; // 'user' or 'environment'
-    let cameraInstance = null;
+    let selectedDeviceId = null;
+    let currentStream = null;
     let poseInstance = null;
+    let animFrameId = null;
 
     // Elements
     const videoElement = document.getElementById('videoElement');
@@ -240,6 +246,7 @@
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
     const liveScoreEl = document.getElementById('liveScore');
+    const cameraSelect = document.getElementById('cameraSelect');
 
     // Current Analysis Data
     let latestAnalysis = {
@@ -285,17 +292,23 @@
       const btnStand = document.getElementById('btnStandMode');
       const modeBadge = document.getElementById('modeBadge');
       const feetBox = document.getElementById('feetMetricBox');
+      const backChairLabel = document.getElementById('backChairLabel');
+      const scoringRuleHint = document.getElementById('scoringRuleHint');
 
       if (mode === 'sitting') {
         btnSit.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow";
         btnStand.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white";
         modeBadge.innerText = "坐姿檢測";
         feetBox.classList.remove('hidden');
+        if (backChairLabel) backChairLabel.classList.remove('hidden');
+        if (scoringRuleHint) scoringRuleHint.innerText = "坐姿檢測共 4 項（頭抬起、肩膀放平、腰背挺直/靠椅背、雙腳平放），每符合一項計 25 分。";
       } else {
         btnStand.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow";
         btnSit.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white";
         modeBadge.innerText = "站姿檢測";
         feetBox.classList.add('hidden');
+        if (backChairLabel) backChairLabel.classList.add('hidden');
+        if (scoringRuleHint) scoringRuleHint.innerText = "站姿檢測共 3 項（頭抬起、肩膀放平、腰背挺直），每符合一項計 1/3 分（約 33.3 分）。";
       }
 
       updateChecklistGuideline();
@@ -320,29 +333,113 @@
       startCamera();
     }
 
-    // Camera Control
-    function startCamera() {
-      if (cameraInstance) {
-        cameraInstance.stop();
+    // Populate Available Cameras List
+    async function populateCameraDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        
+        cameraSelect.innerHTML = '<option value="">預設鏡頭</option>';
+        videoDevices.forEach((device, index) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `攝影機 ${index + 1}`;
+          if (selectedDeviceId === device.deviceId) {
+            option.selected = true;
+          }
+          cameraSelect.appendChild(option);
+        });
+      } catch (err) {
+        console.warn("無法列出攝影機清單:", err);
+      }
+    }
+
+    // Native getUserMedia Camera Controller for Max Compatibility
+    async function startCamera() {
+      stopCamera();
+
+      const retryBtn = document.getElementById('retryCamBtn');
+      const spinner = document.getElementById('loadingSpinner');
+      if (retryBtn) retryBtn.classList.add('hidden');
+      if (spinner) spinner.classList.remove('hidden');
+
+      // Default to rear/environment facing camera (non-selfie)
+      let constraints = { 
+        video: { facingMode: { ideal: "environment" } } 
+      };
+
+      if (selectedDeviceId) {
+        constraints = {
+          video: { deviceId: { exact: selectedDeviceId } }
+        };
       }
 
-      cameraInstance = new Camera(videoElement, {
-        onFrame: async () => {
-          if (isCameraActive) {
-            await poseInstance.send({ image: videoElement });
-          }
-        },
-        width: 1280,
-        height: 720,
-        facingMode: cameraFacing
-      });
+      try {
+        // Request WebCam Stream
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        videoElement.srcObject = currentStream;
+        await videoElement.play();
 
-      cameraInstance.start().then(() => {
         loadingOverlay.classList.add('hidden');
-      }).catch(err => {
-        console.error("Camera start error:", err);
-        document.getElementById('loadingText').innerText = "無法啟用相機，請檢查權限與設備。";
-      });
+        await populateCameraDevices();
+
+        // Start processing frames
+        processVideoFrame();
+      } catch (err) {
+        console.warn("後置相機開啟失敗，嘗試退回通用相機：", err);
+        
+        // Fallback Attempt: Try standard { video: true } if device ID or environment constraint failed
+        try {
+          selectedDeviceId = null;
+          currentStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          videoElement.srcObject = currentStream;
+          await videoElement.play();
+
+          loadingOverlay.classList.add('hidden');
+          await populateCameraDevices();
+          processVideoFrame();
+        } catch (fallbackErr) {
+          console.error("相機啟動錯誤：", fallbackErr);
+          if (spinner) spinner.classList.add('hidden');
+          document.getElementById('loadingText').innerText = "無法存取攝影機";
+          document.getElementById('loadingSubtext').innerText = "請確認裝置連線，並授權瀏覽器存取攝影機權限。";
+          if (retryBtn) retryBtn.classList.remove('hidden');
+        }
+      }
+    }
+
+    function stopCamera() {
+      if (animFrameId) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+      }
+    }
+
+    // Continuous Frame Processing
+    async function processVideoFrame() {
+      if (!isCameraActive || videoElement.paused || videoElement.ended) return;
+
+      if (videoElement.readyState >= 2) {
+        await poseInstance.send({ image: videoElement });
+      }
+
+      animFrameId = requestAnimationFrame(processVideoFrame);
+    }
+
+    function switchSelectedCamera() {
+      selectedDeviceId = cameraSelect.value;
+      loadingOverlay.classList.remove('hidden');
+      startCamera();
+    }
+
+    function retryCamera() {
+      loadingOverlay.classList.remove('hidden');
+      document.getElementById('loadingText').innerText = "正在重新啟動相機...";
+      startCamera();
     }
 
     function toggleCamera() {
@@ -352,17 +449,13 @@
         camBtnText.innerText = "關閉鏡頭";
         statusDot.className = "w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse";
         statusText.innerText = "檢測中...";
+        processVideoFrame();
       } else {
         camBtnText.innerText = "開啟鏡頭";
         statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
         statusText.innerText = "鏡頭已暫停";
+        if (animFrameId) cancelAnimationFrame(animFrameId);
       }
-    }
-
-    function switchCameraFacing() {
-      cameraFacing = cameraFacing === 'user' ? 'environment' : 'user';
-      loadingOverlay.classList.remove('hidden');
-      startCamera();
     }
 
     // Pose Processing Loop
@@ -431,7 +524,6 @@
 
     // Posture Analysis based on Book Requirements
     function analyzePosture(lm) {
-      let score = 100;
       let issues = [];
 
       const nose = lm[0];
@@ -456,7 +548,6 @@
       if (headOffset > 0.08 || lowHeadDiff > -0.15) {
         headPass = false;
         headAdvice = "注意「頭抬起」！請勿過度低頭看書或前傾。";
-        score -= 25;
         issues.push("未做到「頭抬起」（有低頭或頭前傾現象）");
       }
 
@@ -468,7 +559,6 @@
       if (shoulderTilt > 0.05) {
         shoulderPass = false;
         shoulderAdvice = "注意「肩膀放平」！左右肩膀不平高。";
-        score -= 20;
         issues.push("肩膀未放平（左右高低肩）");
       }
 
@@ -489,7 +579,6 @@
           backAdvice = currentMode === 'sitting'
             ? "注意「腰背挺直」與「背部靠著椅背」！請勿駝背或彎腰。"
             : "注意「腰背挺直」！身體不垂直斜靠。";
-          score -= 30;
           issues.push(currentMode === 'sitting' ? "未做到「腰背挺直 / 背部靠著椅背」" : "未做到「腰背挺直」");
         }
       }
@@ -504,18 +593,29 @@
           if (ankleDiffY > 0.08) {
             feetPass = false;
             feetAdvice = "注意「雙腳平放在地上」！請勿翹腳或單腳懸空。";
-            score -= 25;
             issues.push("未做到「雙腳平放在地上」（有翹腳或踩空狀況）");
           }
         }
       }
 
-      score = Math.max(0, Math.min(100, Math.round(score)));
+      // Score Calculation based on new rules
+      let score = 0;
+      if (currentMode === 'sitting') {
+        // Sitting Mode: 4 metrics, 25 points each
+        let passedCount = (headPass ? 1 : 0) + (shoulderPass ? 1 : 0) + (backPass ? 1 : 0) + (feetPass ? 1 : 0);
+        score = passedCount * 25;
+      } else {
+        // Standing Mode: 3 metrics, 1/3 (33.33) points each, rounded to 100
+        let passedCount = (headPass ? 1 : 0) + (shoulderPass ? 1 : 0) + (backPass ? 1 : 0);
+        score = Math.round(passedCount * (100 / 3));
+      }
+
+      score = Math.max(0, Math.min(100, score));
       liveScoreEl.innerText = score;
 
       if (score >= 85) {
         liveScoreEl.className = "text-3xl font-extrabold text-emerald-400";
-      } else if (score >= 65) {
+      } else if (score >= 60) {
         liveScoreEl.className = "text-3xl font-extrabold text-yellow-400";
       } else {
         liveScoreEl.className = "text-3xl font-extrabold text-red-400";
