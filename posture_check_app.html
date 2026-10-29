@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>同學坐姿與站姿即時評分系統</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- MediaPipe Pose and Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+    }
+    /* Mirror camera view for intuitive user experience */
+    .mirror {
+      transform: scaleX(-1);
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-slate-800 border-b border-slate-700 p-4 sticky top-0 z-30 shadow-md">
+    <div class="max-w-6xl mx-auto flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="bg-blue-600 p-2 rounded-lg text-white">
+          <i data-lucide="user-check" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-wide text-white">同學坐姿與站姿檢測系統</h1>
+          <p class="text-xs text-slate-400">依據課本正確「坐、立」姿勢要點即時評分</p>
+        </div>
+      </div>
+
+      <!-- Mode Selection -->
+      <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
+        <button id="btnSitMode" onclick="setMode('sitting')" class="flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow">
+          <i data-lucide="armchair" class="w-4 h-4 mr-2"></i> 坐姿檢測
+        </button>
+        <button id="btnStandMode" onclick="setMode('standing')" class="flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
+          <i data-lucide="accessibility" class="w-4 h-4 mr-2"></i> 站姿檢測
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+    
+    <!-- Left Column: Camera View -->
+    <div class="lg:col-span-2 flex flex-col gap-4">
+      <div class="relative bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 shadow-xl aspect-video flex items-center justify-center">
+        <!-- Loading overlay -->
+        <div id="loading" class="absolute inset-0 z-20 bg-slate-900/90 flex flex-col items-center justify-center p-4">
+          <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+          <p class="text-lg font-medium text-slate-200" id="loadingText">正在初始化 AI 模型與鏡頭...</p>
+          <p class="text-xs text-slate-400 mt-1">請允許瀏覽器存取攝影機權限</p>
+        </div>
+
+        <!-- Video and Canvas -->
+        <video id="videoElement" class="hidden" playsinline></video>
+        <canvas id="canvasElement" class="w-full h-full object-contain mirror"></canvas>
+
+        <!-- Live Status Overlay -->
+        <div class="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700/50 flex items-center space-x-2">
+          <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></span>
+          <span id="statusText" class="text-xs font-semibold text-slate-200">尋找人體中...</span>
+        </div>
+
+        <!-- Reference Guidelines Card overlay -->
+        <div class="absolute top-4 right-4 z-10 bg-slate-900/85 backdrop-blur-md p-3 rounded-xl border border-slate-700/80 max-w-[200px] text-xs space-y-1 hidden sm:block">
+          <div class="font-bold text-blue-400 mb-1 flex items-center">
+            <i data-lucide="book-open" class="w-3.5 h-3.5 mr-1"></i> 正確姿勢對照
+          </div>
+          <ul id="checklistGuideline" class="text-slate-300 space-y-1 list-disc list-inside">
+            <!-- Populated via script -->
+          </ul>
+        </div>
+
+        <!-- Dynamic Score Watermark -->
+        <div class="absolute bottom-4 right-4 z-10 bg-slate-900/85 backdrop-blur-md px-4 py-2 rounded-xl border border-slate-700/80 text-right">
+          <div class="text-xs text-slate-400">即時健康評分</div>
+          <div id="liveScore" class="text-3xl font-extrabold text-blue-400">--</div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex flex-wrap items-center justify-between gap-4 bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <div class="flex items-center space-x-2">
+          <button id="toggleCamBtn" onclick="toggleCamera()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition flex items-center space-x-2">
+            <i data-lucide="video" class="w-4 h-4"></i>
+            <span id="camBtnText">開/關鏡頭</span>
+          </button>
+          <button onclick="switchCameraFacing()" class="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition" title="切換鏡頭">
+            <i data-lucide="switch-camera" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <button onclick="captureAssessment()" class="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg hover:shadow-emerald-900/40 transition flex items-center space-x-2">
+          <i data-lucide="camera" class="w-5 h-5"></i>
+          <span>擷取姿勢評分與建議</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Right Column: Real-time Analysis & Checklist -->
+    <div class="flex flex-col gap-4">
+      
+      <!-- Current Assessment Card -->
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex-1 flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-center border-b border-slate-700 pb-3 mb-4">
+            <h2 class="font-bold text-lg text-white flex items-center">
+              <i data-lucide="activity" class="w-5 h-5 text-blue-400 mr-2"></i> 即時指標比對
+            </h2>
+            <span id="modeBadge" class="text-xs font-semibold px-2.5 py-1 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
+              坐姿模式
+            </span>
+          </div>
+
+          <!-- Real-time metrics -->
+          <div class="space-y-3">
+            <!-- Metric 1: Head Alignment -->
+            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50">
+              <div class="flex justify-between text-sm mb-1">
+                <span class="text-slate-300 font-medium flex items-center">
+                  <i data-lucide="check-circle-2" id="headIcon" class="w-4 h-4 mr-1.5 text-emerald-400"></i> 頭抬起 / 頭部正中
+                </span>
+                <span id="headMetric" class="font-semibold text-emerald-400">符合</span>
+              </div>
+              <p id="headAdvice" class="text-xs text-slate-400">頭部保持正中抬起，無過度低頭。</p>
+            </div>
+
+            <!-- Metric 2: Shoulder Alignment -->
+            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50">
+              <div class="flex justify-between text-sm mb-1">
+                <span class="text-slate-300 font-medium flex items-center">
+                  <i data-lucide="check-circle-2" id="shoulderIcon" class="w-4 h-4 mr-1.5 text-emerald-400"></i> 肩膀放平
+                </span>
+                <span id="shoulderMetric" class="font-semibold text-emerald-400">符合</span>
+              </div>
+              <p id="shoulderAdvice" class="text-xs text-slate-400">雙肩平放，左右平衡無高低肩。</p>
+            </div>
+
+            <!-- Metric 3: Back/Spine Straightness -->
+            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50">
+              <div class="flex justify-between text-sm mb-1">
+                <span class="text-slate-300 font-medium flex items-center">
+                  <i data-lucide="check-circle-2" id="backIcon" class="w-4 h-4 mr-1.5 text-emerald-400"></i> 腰背挺直 / 背部靠椅背
+                </span>
+                <span id="backMetric" class="font-semibold text-emerald-400">符合</span>
+              </div>
+              <p id="backAdvice" class="text-xs text-slate-400">脊椎打直，維持健康自然彎曲。</p>
+            </div>
+
+            <!-- Metric 4: Feet Grounded (for sitting) -->
+            <div id="feetMetricBox" class="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50">
+              <div class="flex justify-between text-sm mb-1">
+                <span class="text-slate-300 font-medium flex items-center">
+                  <i data-lucide="check-circle-2" id="feetIcon" class="w-4 h-4 mr-1.5 text-emerald-400"></i> 雙腳平放在地上
+                </span>
+                <span id="feetMetric" class="font-semibold text-emerald-400">檢測中</span>
+              </div>
+              <p id="feetAdvice" class="text-xs text-slate-400">雙腳著地支撐身體重心。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Guidance -->
+        <div class="mt-4 bg-blue-950/40 border border-blue-800/50 p-3.5 rounded-xl text-xs text-blue-200">
+          <div class="font-bold flex items-center text-blue-300 mb-1">
+            <i data-lucide="info" class="w-4 h-4 mr-1"></i> 檢測提示
+          </div>
+          請將鏡頭對準同學側面或正面，確保頭部、肩膀與腰背皆入鏡，以獲得最精準評分。
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Assessment Snapshot Modal -->
+  <div id="reportModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-slate-800 border border-slate-700 w-full max-w-lg rounded-2xl p-6 shadow-2xl relative my-8">
+      
+      <button onclick="closeReport()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700">
+        <i data-lucide="x" class="w-6 h-6"></i>
+      </button>
+
+      <div class="text-center mb-6">
+        <span id="reportBadge" class="text-xs font-semibold px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
+          坐姿診斷報告
+        </span>
+        <h3 class="text-2xl font-bold text-white mt-2">同學姿態評分報告</h3>
+        <p class="text-xs text-slate-400 mt-1" id="reportTime">檢測時間：--</p>
+      </div>
+
+      <!-- Score display -->
+      <div class="flex items-center justify-center my-6">
+        <div class="relative flex items-center justify-center w-32 h-32 rounded-full border-4 border-blue-500 bg-slate-900 shadow-inner">
+          <div class="text-center">
+            <span id="reportScore" class="text-4xl font-extrabold text-blue-400">--</span>
+            <span class="text-xs text-slate-400 block">/ 100分</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detailed Feedback List -->
+      <div class="space-y-3 mb-6" id="reportDetails">
+        <!-- Will be populated dynamically -->
+      </div>
+
+      <!-- Action Footer -->
+      <div class="flex gap-3">
+        <button onclick="closeReport()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow transition">
+          確定 / 重新檢測
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // App State
+    let currentMode = 'sitting'; // 'sitting' or 'standing'
+    let isCameraActive = true;
+    let cameraFacing = 'user'; // 'user' or 'environment'
+    let cameraInstance = null;
+    let poseInstance = null;
+
+    // Elements
+    const videoElement = document.getElementById('videoElement');
+    const canvasElement = document.getElementById('canvasElement');
+    const canvasCtx = canvasElement.getContext('2d');
+    const loadingOverlay = document.getElementById('loading');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const liveScoreEl = document.getElementById('liveScore');
+
+    // Current Analysis Data
+    let latestAnalysis = {
+      score: 100,
+      headPass: true,
+      shoulderPass: true,
+      backPass: true,
+      feetPass: true,
+      headAdvice: '',
+      shoulderAdvice: '',
+      backAdvice: '',
+      feetAdvice: '',
+      issues: []
+    };
+
+    // Initialize Lucide Icons
+    lucide.createIcons();
+    updateChecklistGuideline();
+
+    function updateChecklistGuideline() {
+      const container = document.getElementById('checklistGuideline');
+      if (currentMode === 'sitting') {
+        container.innerHTML = `
+          <li>頭抬起（不低頭）</li>
+          <li>腰背挺直</li>
+          <li>背部靠著椅背</li>
+          <li>雙腳平放在地上</li>
+        `;
+      } else {
+        container.innerHTML = `
+          <li>頭抬起</li>
+          <li>肩膀放平</li>
+          <li>腰背挺直</li>
+          <li>全身垂直不歪斜</li>
+        `;
+      }
+    }
+
+    // Set Mode (Sitting / Standing)
+    function setMode(mode) {
+      currentMode = mode;
+      const btnSit = document.getElementById('btnSitMode');
+      const btnStand = document.getElementById('btnStandMode');
+      const modeBadge = document.getElementById('modeBadge');
+      const feetBox = document.getElementById('feetMetricBox');
+
+      if (mode === 'sitting') {
+        btnSit.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow";
+        btnStand.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white";
+        modeBadge.innerText = "坐姿檢測";
+        feetBox.classList.remove('hidden');
+      } else {
+        btnStand.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow";
+        btnSit.className = "flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white";
+        modeBadge.innerText = "站姿檢測";
+        feetBox.classList.add('hidden');
+      }
+
+      updateChecklistGuideline();
+    }
+
+    // MediaPipe Pose Setup
+    function initPose() {
+      poseInstance = new Pose({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+      });
+
+      poseInstance.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      poseInstance.onResults(onPoseResults);
+
+      startCamera();
+    }
+
+    // Camera Control
+    function startCamera() {
+      if (cameraInstance) {
+        cameraInstance.stop();
+      }
+
+      cameraInstance = new Camera(videoElement, {
+        onFrame: async () => {
+          if (isCameraActive) {
+            await poseInstance.send({ image: videoElement });
+          }
+        },
+        width: 1280,
+        height: 720,
+        facingMode: cameraFacing
+      });
+
+      cameraInstance.start().then(() => {
+        loadingOverlay.classList.add('hidden');
+      }).catch(err => {
+        console.error("Camera start error:", err);
+        document.getElementById('loadingText').innerText = "無法啟用相機，請檢查權限與設備。";
+      });
+    }
+
+    function toggleCamera() {
+      isCameraActive = !isCameraActive;
+      const camBtnText = document.getElementById('camBtnText');
+      if (isCameraActive) {
+        camBtnText.innerText = "關閉鏡頭";
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse";
+        statusText.innerText = "檢測中...";
+      } else {
+        camBtnText.innerText = "開啟鏡頭";
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+        statusText.innerText = "鏡頭已暫停";
+      }
+    }
+
+    function switchCameraFacing() {
+      cameraFacing = cameraFacing === 'user' ? 'environment' : 'user';
+      loadingOverlay.classList.remove('hidden');
+      startCamera();
+    }
+
+    // Pose Processing Loop
+    function onPoseResults(results) {
+      canvasElement.width = videoElement.videoWidth || 640;
+      canvasElement.height = videoElement.videoHeight || 480;
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // Draw original video frame
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.poseLandmarks) {
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+        statusText.innerText = "成功捕捉姿勢";
+
+        drawPoseSkeleton(results.poseLandmarks);
+        analyzePosture(results.poseLandmarks);
+      } else {
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse";
+        statusText.innerText = "尋找同學中...";
+        liveScoreEl.innerText = "--";
+      }
+
+      canvasCtx.restore();
+    }
+
+    // Drawing Skeleton
+    function drawPoseSkeleton(landmarks) {
+      const connections = [
+        [11, 12], [11, 23], [12, 24], [23, 24], // Torso
+        [11, 13], [13, 15], [12, 14], [14, 16], // Arms
+        [23, 25], [25, 27], [24, 26], [26, 28], // Legs
+        [0, 11], [0, 12]                        // Head
+      ];
+
+      canvasCtx.lineWidth = 4;
+      canvasCtx.strokeStyle = '#3b82f6';
+
+      connections.forEach(([i, j]) => {
+        const p1 = landmarks[i];
+        const p2 = landmarks[j];
+        if (p1 && p2 && p1.visibility > 0.4 && p2.visibility > 0.4) {
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(p1.x * canvasElement.width, p1.y * canvasElement.height);
+          canvasCtx.lineTo(p2.x * canvasElement.width, p2.y * canvasElement.height);
+          canvasCtx.stroke();
+        }
+      });
+
+      // Joint circles
+      [0, 11, 12, 23, 24, 25, 26, 27, 28].forEach(idx => {
+        const p = landmarks[idx];
+        if (p && p.visibility > 0.4) {
+          canvasCtx.beginPath();
+          canvasCtx.arc(p.x * canvasElement.width, p.y * canvasElement.height, 6, 0, 2 * Math.PI);
+          canvasCtx.fillStyle = '#10b981';
+          canvasCtx.fill();
+          canvasCtx.lineWidth = 2;
+          canvasCtx.strokeStyle = '#ffffff';
+          canvasCtx.stroke();
+        }
+      });
+    }
+
+    // Posture Analysis based on Book Requirements
+    function analyzePosture(lm) {
+      let score = 100;
+      let issues = [];
+
+      const nose = lm[0];
+      const leftShoulder = lm[11];
+      const rightShoulder = lm[12];
+      const leftHip = lm[23];
+      const rightHip = lm[24];
+      const leftAnkle = lm[27];
+      const rightAnkle = lm[28];
+
+      const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2;
+      const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2;
+
+      // Rule 1: 「頭抬起」/ 不低頭看書
+      let headPass = true;
+      let headAdvice = "頭部保持正中抬起，視線向前。";
+      
+      // Nose angle vs shoulder center (Forward head or downward tilt)
+      const headOffset = Math.abs(nose.x - shoulderCenterX);
+      const lowHeadDiff = nose.y - shoulderCenterY; // Nose too low relative to shoulder
+
+      if (headOffset > 0.08 || lowHeadDiff > -0.15) {
+        headPass = false;
+        headAdvice = "注意「頭抬起」！請勿過度低頭看書或前傾。";
+        score -= 25;
+        issues.push("未做到「頭抬起」（有低頭或頭前傾現象）");
+      }
+
+      // Rule 2: 「肩膀放平」
+      let shoulderPass = true;
+      let shoulderAdvice = "雙肩平放平衡。";
+      const shoulderTilt = Math.abs(leftShoulder.y - rightShoulder.y);
+
+      if (shoulderTilt > 0.05) {
+        shoulderPass = false;
+        shoulderAdvice = "注意「肩膀放平」！左右肩膀不平高。";
+        score -= 20;
+        issues.push("肩膀未放平（左右高低肩）");
+      }
+
+      // Rule 3: 「腰背挺直」/ 「背部靠著椅背」
+      let backPass = true;
+      let backAdvice = "腰背挺直，符合脊椎健康姿勢。";
+
+      if (leftHip && rightHip && leftHip.visibility > 0.3) {
+        const hipCenterX = (leftHip.x + rightHip.x) / 2;
+        const hipCenterY = (leftHip.y + rightHip.y) / 2;
+
+        const dx = shoulderCenterX - hipCenterX;
+        const dy = shoulderCenterY - hipCenterY;
+        const torsoAngle = Math.abs(Math.atan2(dx, -dy) * (180 / Math.PI));
+
+        if (torsoAngle > 10) {
+          backPass = false;
+          backAdvice = currentMode === 'sitting'
+            ? "注意「腰背挺直」與「背部靠著椅背」！請勿駝背或彎腰。"
+            : "注意「腰背挺直」！身體不垂直斜靠。";
+          score -= 30;
+          issues.push(currentMode === 'sitting' ? "未做到「腰背挺直 / 背部靠著椅背」" : "未做到「腰背挺直」");
+        }
+      }
+
+      // Rule 4: 「雙腳平放在地上」(Sitting only)
+      let feetPass = true;
+      let feetAdvice = "雙腳著地支撐良好。";
+
+      if (currentMode === 'sitting') {
+        if (leftAnkle && rightAnkle && leftAnkle.visibility > 0.3 && rightAnkle.visibility > 0.3) {
+          const ankleDiffY = Math.abs(leftAnkle.y - rightAnkle.y);
+          if (ankleDiffY > 0.08) {
+            feetPass = false;
+            feetAdvice = "注意「雙腳平放在地上」！請勿翹腳或單腳懸空。";
+            score -= 25;
+            issues.push("未做到「雙腳平放在地上」（有翹腳或踩空狀況）");
+          }
+        }
+      }
+
+      score = Math.max(0, Math.min(100, Math.round(score)));
+      liveScoreEl.innerText = score;
+
+      if (score >= 85) {
+        liveScoreEl.className = "text-3xl font-extrabold text-emerald-400";
+      } else if (score >= 65) {
+        liveScoreEl.className = "text-3xl font-extrabold text-yellow-400";
+      } else {
+        liveScoreEl.className = "text-3xl font-extrabold text-red-400";
+      }
+
+      // Update Card UI
+      updateMetricStatus('head', headPass, headAdvice);
+      updateMetricStatus('shoulder', shoulderPass, shoulderAdvice);
+      updateMetricStatus('back', backPass, backAdvice);
+      if (currentMode === 'sitting') {
+        updateMetricStatus('feet', feetPass, feetAdvice);
+      }
+
+      latestAnalysis = {
+        score,
+        headPass, shoulderPass, backPass, feetPass,
+        headAdvice, shoulderAdvice, backAdvice, feetAdvice,
+        issues
+      };
+    }
+
+    function updateMetricStatus(key, isPass, adviceText) {
+      const metricEl = document.getElementById(`${key}Metric`);
+      const adviceEl = document.getElementById(`${key}Advice`);
+      const iconEl = document.getElementById(`${key}Icon`);
+
+      if (isPass) {
+        metricEl.innerText = "符合";
+        metricEl.className = "font-semibold text-emerald-400";
+        iconEl.className = "w-4 h-4 mr-1.5 text-emerald-400";
+      } else {
+        metricEl.innerText = "待改進";
+        metricEl.className = "font-semibold text-amber-400";
+        iconEl.className = "w-4 h-4 mr-1.5 text-amber-400";
+      }
+      adviceEl.innerText = adviceText;
+    }
+
+    // Capture Snapshot Assessment Modal
+    function captureAssessment() {
+      const modal = document.getElementById('reportModal');
+      const reportScore = document.getElementById('reportScore');
+      const reportBadge = document.getElementById('reportBadge');
+      const reportTime = document.getElementById('reportTime');
+      const reportDetails = document.getElementById('reportDetails');
+
+      reportBadge.innerText = currentMode === 'sitting' ? '課本對照：坐姿評分' : '課本對照：站姿評分';
+      reportTime.innerText = `檢測時間：${new Date().toLocaleTimeString()}`;
+      reportScore.innerText = latestAnalysis.score;
+
+      let html = '';
+
+      if (latestAnalysis.score >= 85) {
+        html += `
+          <div class="p-3.5 bg-emerald-950/50 border border-emerald-800/60 rounded-xl flex items-start space-x-3">
+            <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0"></i>
+            <div>
+              <div class="font-bold text-sm text-emerald-200">完全符合正確姿勢標準！</div>
+              <p class="text-xs text-emerald-300/80 mt-0.5">同學成功做到「頭抬起、腰背挺直、肩膀放平」，能有效保持脊椎健康！</p>
+            </div>
+          </div>
+        `;
+      } else {
+        html += `
+          <div class="p-3 bg-slate-900/80 border border-slate-700 rounded-xl mb-3">
+            <div class="font-bold text-sm text-amber-300 mb-2 flex items-center">
+              <i data-lucide="alert-circle" class="w-4 h-4 mr-1"></i> 未符合課本姿勢之項目：
+            </div>
+            <ul class="list-disc list-inside text-xs text-amber-200/90 space-y-1">
+              ${latestAnalysis.issues.map(issue => `<li>${issue}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      html += `
+        <div class="p-3.5 bg-slate-900/60 border border-slate-700 rounded-xl space-y-2">
+          <div class="font-bold text-xs text-slate-300 uppercase tracking-wider">具體改進意見：</div>
+          <p class="text-xs text-slate-400">1. <strong>頭部：</strong> ${latestAnalysis.headAdvice}</p>
+          <p class="text-xs text-slate-400">2. <strong>肩膀：</strong> ${latestAnalysis.shoulderAdvice}</p>
+          <p class="text-xs text-slate-400">3. <strong>腰背與脊椎：</strong> ${latestAnalysis.backAdvice}</p>
+          ${currentMode === 'sitting' ? `<p class="text-xs text-slate-400">4. <strong>雙腳位置：</strong> ${latestAnalysis.feetAdvice}</p>` : ''}
+        </div>
+      `;
+
+      reportDetails.innerHTML = html;
+      lucide.createIcons();
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeReport() {
+      document.getElementById('reportModal').classList.add('hidden');
+    }
+
+    // Initialize on window load
+    window.onload = () => {
+      initPose();
+    };
+  </script>
+</body>
+</html>
