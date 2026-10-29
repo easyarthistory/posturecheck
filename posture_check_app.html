@@ -73,7 +73,7 @@
         <!-- Live Status Overlay -->
         <div class="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700/50 flex items-center space-x-2">
           <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse"></span>
-          <span id="statusText" class="text-xs font-semibold text-slate-200">尋找人體中...</span>
+          <span id="statusText" class="text-xs font-semibold text-slate-200">尋找人物中...</span>
         </div>
 
         <!-- Camera Zoom Controls Overlay -->
@@ -132,13 +132,23 @@
       <!-- Current Assessment Card -->
       <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex-1 flex flex-col justify-between">
         <div>
-          <div class="flex justify-between items-center border-b border-slate-700 pb-3 mb-4">
+          <div class="flex justify-between items-center border-b border-slate-700 pb-3 mb-4 flex-wrap gap-2">
             <h2 class="font-bold text-lg text-white flex items-center">
               <i data-lucide="activity" class="w-5 h-5 text-blue-400 mr-2"></i> 即時指標比對
             </h2>
-            <span id="modeBadge" class="text-xs font-semibold px-2.5 py-1 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
-              坐姿模式
-            </span>
+            <div class="flex items-center space-x-2">
+              <button onclick="openRefModal('sitting')" class="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition flex items-center space-x-1 shadow">
+                <i data-lucide="image" class="w-3.5 h-3.5"></i>
+                <span>正確坐姿示範圖</span>
+              </button>
+              <button onclick="openRefModal('standing')" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition flex items-center space-x-1 shadow">
+                <i data-lucide="image" class="w-3.5 h-3.5"></i>
+                <span>正確站姿示範圖</span>
+              </button>
+              <span id="modeBadge" class="text-xs font-semibold px-2.5 py-1 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
+                坐姿模式
+              </span>
+            </div>
           </div>
 
           <!-- Real-time metrics -->
@@ -213,7 +223,7 @@
         <span id="reportBadge" class="text-xs font-semibold px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">
           坐姿診斷報告
         </span>
-        <h3 class="text-2xl font-bold text-white mt-2">同學姿態評分報告</h3>
+        <h3 class="text-2xl font-bold text-white mt-2">姿態評分報告</h3>
         <p class="text-xs text-slate-400 mt-1" id="reportTime">檢測時間：--</p>
       </div>
 
@@ -255,10 +265,36 @@
     </div>
   </div>
 
+  <!-- Reference Image Modal -->
+  <div id="refImageModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-slate-800 border border-slate-700 w-full max-w-xl rounded-2xl p-6 shadow-2xl relative my-8">
+      <button onclick="closeRefModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700">
+        <i data-lucide="x" class="w-6 h-6"></i>
+      </button>
+
+      <div class="text-center mb-4">
+        <h3 id="refModalTitle" class="text-xl font-bold text-white flex items-center justify-center">
+          <i data-lucide="book-open" class="w-5 h-5 mr-2 text-blue-400"></i> 正確姿勢示範
+        </h3>
+        <p class="text-xs text-slate-400 mt-1">請參考以下標準姿勢對照，調整同學的坐姿與站姿</p>
+      </div>
+
+      <div class="rounded-xl overflow-hidden border border-slate-700 bg-slate-900 p-2 flex items-center justify-center">
+        <img id="refModalImg" src="" alt="正確姿勢示範圖" class="max-h-[70vh] w-auto object-contain rounded-lg">
+      </div>
+
+      <div class="mt-5 text-center">
+        <button onclick="closeRefModal()" class="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold rounded-xl transition">
+          關閉參考圖
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="bg-slate-900 border-t border-slate-800 py-4 px-4 text-center mt-auto">
     <p class="text-xs md:text-sm text-slate-400 font-medium">
-     — Ms. Hea Limited ｜ 站姿坐姿檢測系統 ｜ 網頁由 Google Gemini 製作 —
+      — Ms. Hea Limited ｜ 站姿坐姿檢測小系統 ｜ 網頁由 Google Gemini 製作 —
     </p>
   </footer>
 
@@ -558,7 +594,7 @@
         analyzePosture(results.poseLandmarks);
       } else {
         statusDot.className = "w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse";
-        statusText.innerText = "尋找同學中...";
+        statusText.innerText = "尋找人物中...";
         liveScoreEl.innerText = "--";
       }
 
@@ -774,7 +810,7 @@
             <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0"></i>
             <div>
               <div class="font-bold text-sm text-emerald-200">完全符合正確姿勢標準！</div>
-              <p class="text-xs text-emerald-300/80 mt-0.5">同學成功做到「頭抬起、腰背挺直、肩膀放平」，能有效保持脊椎健康！</p>
+              <p class="text-xs text-emerald-300/80 mt-0.5">成功做到「頭抬起、腰背挺直、肩膀放平」，能有效保持脊椎健康！</p>
             </div>
           </div>
         `;
@@ -809,6 +845,34 @@
 
     function closeReport() {
       document.getElementById('reportModal').classList.add('hidden');
+    }
+
+    // Reference Image Modal Handlers
+    function openRefModal(type) {
+      const modal = document.getElementById('refImageModal');
+      const titleEl = document.getElementById('refModalTitle');
+      const imgEl = document.getElementById('refModalImg');
+
+      if (type === 'sitting') {
+        titleEl.innerHTML = `<i data-lucide="book-open" class="w-5 h-5 mr-2 text-blue-400"></i> 正確坐姿示範圖`;
+        imgEl.src = '正確坐姿.jpg';
+        imgEl.onerror = () => {
+          imgEl.src = 'https://placehold.co/800x450/1e293b/38bdf8?text=%E6%AD%A3%E7%A2%RA%E5%9D%90%E5%A7%BF.jpg+%EF%BC%88%E8%AB%8B%E5%B0%87%E5%9C%96%E7%89%87%E6%94%BE%E5%85%A5%E5%B0%8D%E6%87%89%E8%B7%AF%E5%BE%84%EF%BC%89';
+        };
+      } else {
+        titleEl.innerHTML = `<i data-lucide="book-open" class="w-5 h-5 mr-2 text-emerald-400"></i> 正確站姿示範圖`;
+        imgEl.src = '正確站姿.jpg';
+        imgEl.onerror = () => {
+          imgEl.src = 'https://placehold.co/800x450/1e293b/34d399?text=%E6%AD%A3%E7%A2%RA%E7%AB%99%E5%A7%BF.jpg+%EF%BC%88%E8%AB%8B%E5%B0%87%E5%9C%96%E7%89%87%E6%94%BE%E5%85%A5%E5%B0%8D%E6%87%89%E8%B7%AF%E5%BE%84%EF%BC%89';
+        };
+      }
+
+      lucide.createIcons();
+      modal.classList.remove('hidden');
+    }
+
+    function closeRefModal() {
+      document.getElementById('refImageModal').classList.add('hidden');
     }
 
     // Initialize on window load
